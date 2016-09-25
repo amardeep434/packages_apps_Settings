@@ -17,6 +17,8 @@
 package com.android.settings;
 
 import android.app.Activity;
+import android.content.ClipData;
+import android.content.ClipboardManager;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.ApplicationInfo;
@@ -43,6 +45,7 @@ import android.util.Log;
 import com.nispok.snackbar.Snackbar;
 import com.nispok.snackbar.SnackbarManager;
 
+import cyanogenmod.hardware.CMHardwareManager;
 import com.android.internal.logging.MetricsLogger;
 import com.android.settings.search.BaseSearchIndexProvider;
 import com.android.settings.search.Index;
@@ -100,10 +103,13 @@ public class DeviceInfoSettings extends SettingsPreferenceFragment implements In
     private static final String KEY_VENDOR_VERSION = "vendor_version";
 
     static final int TAPS_TO_BE_A_DEVELOPER = 7;
+    static final int TAPS_TO_SHOW_DEVICEID = 7;
 
     long[] mHits = new long[3];
     int mDevHitCountdown;
+    int mDevIdCountdown;
     SnackbarManager mDevHitSnackbar;
+    SnackbarManager mDevIdSnackbar;
 
     @Override
     protected int getMetricsCategory() {
@@ -151,7 +157,9 @@ public class DeviceInfoSettings extends SettingsPreferenceFragment implements In
         setStringSummary(KEY_DEVICE_MODEL, Build.MODEL);
         setStringSummary(KEY_BUILD_NUMBER, Build.DISPLAY);
         findPreference(KEY_BUILD_NUMBER).setEnabled(true);
-        findPreference(KEY_KERNEL_VERSION).setSummary(getFormattedKernelVersion());
+        final Preference kernelPref = findPreference(KEY_KERNEL_VERSION);
+        kernelPref.setEnabled(true);
+        kernelPref.setSummary(getFormattedKernelVersion());
         setValueSummary(KEY_MOD_VERSION, "ro.aicp.version");
         findPreference(KEY_MOD_VERSION).setEnabled(true);
         setValueSummary(KEY_MOD_BUILD_DATE, "ro.build.date");
@@ -250,6 +258,8 @@ public class DeviceInfoSettings extends SettingsPreferenceFragment implements In
                 Context.MODE_PRIVATE).getBoolean(DevelopmentSettings.PREF_SHOW,
                         android.os.Build.TYPE.equals("eng")) ? -1 : TAPS_TO_BE_A_DEVELOPER;
         mDevHitSnackbar = null;
+        mDevIdCountdown = TAPS_TO_SHOW_DEVICEID;
+        mDevIdSnackbar = null;
     }
 
     @Override
@@ -286,6 +296,41 @@ public class DeviceInfoSettings extends SettingsPreferenceFragment implements In
                     Log.e(LOG_TAG, "Unable to start activity " + intent.toString());
                 }
             }
+        } else if (preference.getKey().equals(KEY_KERNEL_VERSION)) {
+
+            mDevIdCountdown --;
+            if (mDevIdCountdown == 0) {
+                final CMHardwareManager hwMgr = CMHardwareManager.getInstance(getActivity().getApplicationContext());
+                final String deviceID = hwMgr.getUniqueDeviceId();
+                CharSequence msg;
+                if (deviceID == null) {
+                    msg = getText(R.string.show_device_id_failed_cm);
+                }
+                else {
+                    final ClipboardManager clipboardMgr = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+                    clipboardMgr.setPrimaryClip(ClipData.newPlainText(getResources().
+                                    getString(R.string.show_device_id_clipboard_label),
+                            deviceID));
+                    msg = getResources().getString(
+                            R.string.show_device_id_copied_cm, deviceID);
+                }
+                Utils.showSnackbar(msg.toString(), Snackbar.SnackbarDuration.LENGTH_LONG,
+                            null, null, getActivity());
+                mDevIdCountdown = TAPS_TO_SHOW_DEVICEID;
+            }
+            else if (mDevIdCountdown > 0
+                    && mDevIdCountdown < (TAPS_TO_SHOW_DEVICEID-2)) {
+
+                if (mDevIdSnackbar != null) {
+                    mDevIdSnackbar.dismiss();
+                }
+                final String message = getResources().getQuantityString(
+                        R.plurals.show_device_id_countdown_cm,
+                        mDevIdCountdown, mDevIdCountdown);
+                Utils.showSnackbar(message, Snackbar.SnackbarDuration.LENGTH_SHORT,
+                        null, null, getActivity());
+            }
+
         } else if (preference.getKey().equals(KEY_BUILD_NUMBER)) {
             Context mContext = getActivity().getApplicationContext();
             // Don't enable developer options for secondary users.
